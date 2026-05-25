@@ -11,16 +11,24 @@ PROMETHEUS_VERSION="2.52.0"
 VAULT_ADDR="http://127.0.0.1:8200"
 VAULT_TOKEN="root"
 WORKDIR="$(pwd)"
-VENV_DIR="${WORKDIR}/venv"
 
-# ── 1. System packages ─────────────────────────────────────
+# ── 1. System packages ──────────────────────────────────────
 log "Step 1/8 — Installing system packages..."
 sudo apt-get update -qq
-sudo apt-get install -y -qq nginx python3-pip python3-venv curl wget unzip apt-transport-https software-properties-common gnupg2
+sudo apt-get install -y -qq nginx curl wget unzip apt-transport-https \
+    software-properties-common gnupg2 ca-certificates
 ok "System packages installed"
 
-# ── 2. HashiCorp Vault ─────────────────────────────────────
-log "Step 2/8 — Installing Vault ${VAULT_VERSION}..."
+# ── 2. Docker (for Flask) ──────────────────────────────────
+log "Step 2/8 — Installing Docker..."
+if ! command -v docker &>/dev/null; then
+    curl -fsSL https://get.docker.com | sudo sh
+fi
+sudo usermod -aG docker "$USER" 2>/dev/null || true
+ok "Docker installed: $(docker --version)"
+
+# ── 3. HashiCorp Vault ─────────────────────────────────────
+log "Step 3/8 — Installing Vault ${VAULT_VERSION}..."
 if ! command -v vault &>/dev/null; then
     wget -q "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip" -O /tmp/vault.zip
     unzip -q /tmp/vault.zip -d /tmp/
@@ -41,8 +49,8 @@ log "  Writing secret to Vault..."
 vault kv put secret/myapp/apikey value="SuperSecretKey123" &>/dev/null
 ok "Vault running and secret stored at secret/myapp/apikey"
 
-# ── 3. Node Exporter ───────────────────────────────────────
-log "Step 3/8 — Installing Node Exporter ${NODE_EXPORTER_VERSION}..."
+# ── 4. Node Exporter ───────────────────────────────────────
+log "Step 4/8 — Installing Node Exporter ${NODE_EXPORTER_VERSION}..."
 if ! command -v node_exporter &>/dev/null; then
     NE_FILE="node_exporter-${NODE_EXPORTER_VERSION}.linux-amd64"
     wget -q "https://github.com/prometheus/node_exporter/releases/download/v${NODE_EXPORTER_VERSION}/${NE_FILE}.tar.gz" -O /tmp/node_exporter.tar.gz
@@ -55,8 +63,8 @@ node_exporter &>/tmp/node_exporter.log &
 sleep 2
 ok "Node Exporter running on :9100"
 
-# ── 4. Prometheus ──────────────────────────────────────────
-log "Step 4/8 — Installing Prometheus ${PROMETHEUS_VERSION}..."
+# ── 5. Prometheus ──────────────────────────────────────────
+log "Step 5/8 — Installing Prometheus ${PROMETHEUS_VERSION}..."
 if ! command -v prometheus &>/dev/null; then
     PROM_FILE="prometheus-${PROMETHEUS_VERSION}.linux-amd64"
     wget -q "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/${PROM_FILE}.tar.gz" -O /tmp/prometheus.tar.gz
@@ -70,16 +78,15 @@ prometheus --config.file="${WORKDIR}/prometheus/prometheus.yml" &>/tmp/prometheu
 sleep 2
 ok "Prometheus running on :9090"
 
-# ── 5. Grafana ─────────────────────────────────────────────
-log "Step 5/8 — Installing Grafana..."
+# ── 6. Grafana ─────────────────────────────────────────────
+log "Step 6/8 — Installing Grafana..."
 if ! command -v grafana-server &>/dev/null; then
     wget -q -O - https://apt.grafana.com/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/grafana.gpg
-    echo "deb [signed-by=/usr/share/keyrings/grafana.gpg] https://apt.grafana.com stable main" | sudo tee /etc/apt/sources.list.d/grafana.list
+    echo "deb [signed-by=/usr/share/keyrings/grafana.gpg] https://apt.grafana.com stable main" \
+        | sudo tee /etc/apt/sources.list.d/grafana.list
     sudo apt-get update -qq
     sudo apt-get install -y -qq grafana
 fi
-
-# Configure Grafana to serve under /grafana/ subpath
 sudo sed -i 's|;root_url = .*|root_url = %(protocol)s://%(domain)s:%(http_port)s/grafana/|' /etc/grafana/grafana.ini
 sudo sed -i 's|;serve_from_sub_path = false|serve_from_sub_path = true|' /etc/grafana/grafana.ini
 sudo systemctl enable grafana-server &>/dev/null
@@ -87,43 +94,40 @@ sudo systemctl restart grafana-server
 sleep 3
 ok "Grafana running on :3000"
 
-# ── 6. Nginx ───────────────────────────────────────────────
-log "Step 6/8 — Configuring Nginx reverse proxy..."
+# ── 7. Nginx ───────────────────────────────────────────────
+log "Step 7/8 — Configuring Nginx reverse proxy..."
 sudo cp "${WORKDIR}/nginx/default.conf" /etc/nginx/sites-available/default
 sudo nginx -t -q
 sudo systemctl restart nginx
 ok "Nginx configured and running on :80"
 
-# ── 7. Flask app ───────────────────────────────────────────
-log "Step 7/8 — Setting up Python venv and starting Flask app..."
+# ── 8. Flask via Docker ────────────────────────────────────
+log "Step 8/8 — Building and starting Flask app via Docker..."
 
-# Create venv if it doesn't exist
-if [ ! -d "${VENV_DIR}" ]; then
-    python3 -m venv "${VENV_DIR}"
-    ok "Virtual environment created at ${VENV_DIR}"
-fi
+# Stop any previous container
+sudo docker rm -f flask-app 2>/dev/null || true
 
-# Install Flask inside the venv
-"${VENV_DIR}/bin/pip" install flask -q
-ok "Flask installed in venv"
+# Build the image
+sudo docker build -t flask-app "${WORKDIR}/app/"
 
-pkill -f "app.py" 2>/dev/null || true
-export VAULT_ADDR="$VAULT_ADDR"
-export VAULT_TOKEN="$VAULT_TOKEN"
+# Run container — host networking so it can reach Vault on 127.0.0.1:8200
+sudo docker run -d \
+    --name flask-app \
+    --network host \
+    -e VAULT_ADDR="${VAULT_ADDR}" \
+    -e VAULT_TOKEN="${VAULT_TOKEN}" \
+    flask-app
 
-# Launch app using the venv Python interpreter
-"${VENV_DIR}/bin/python3" "${WORKDIR}/app/app.py" &>/tmp/flask.log &
-sleep 2
-ok "Flask app running on :5000"
+sleep 3
+ok "Flask app running on :5000 (Docker container)"
 
-# ── 8. Final checks ────────────────────────────────────────
-log "Step 8/8 — Verifying services..."
+# ── Summary ────────────────────────────────────────────────
 VM_IP=$(hostname -I | awk '{print $1}')
-
+echo ""
 echo -e "  ${BLUE}Web App:${NC}    http://${VM_IP}/"
 echo -e "  ${BLUE}Grafana:${NC}    http://${VM_IP}/grafana/  (admin / admin)"
 echo -e "  ${BLUE}Prometheus:${NC} http://${VM_IP}:9090"
 echo -e "  ${BLUE}Vault UI:${NC}   http://${VM_IP}:8200  (token: root)"
 echo ""
-echo -e "  Log files: /tmp/vault.log  /tmp/flask.log"
-echo -e "             /tmp/prometheus.log  /tmp/node_exporter.log"
+echo -e "  Log files: /tmp/vault.log  /tmp/prometheus.log  /tmp/node_exporter.log"
+echo -e "  Flask logs: sudo docker logs flask-app"
