@@ -101,7 +101,7 @@ ok "Nginx configured and running on :80"
 
 # ── 7. Flask app ───────────────────────────────────────────
 log "Step 7/8 — Installing Flask and starting the app..."
-pip3 install flask -q
+pip3 install flask -q --break-system-packages
 pkill -f "app.py" 2>/dev/null || true
 export VAULT_ADDR="$VAULT_ADDR"
 export VAULT_TOKEN="$VAULT_TOKEN"
@@ -113,11 +113,6 @@ ok "Flask app running on :5000"
 log "Step 8/8 — Verifying services..."
 VM_IP=$(hostname -I | awk '{print $1}')
 
-echo ""
-echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║           SETUP COMPLETE — GRADE: 10/10      ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
-echo ""
 echo -e "  ${BLUE}Web App:${NC}    http://${VM_IP}/"
 echo -e "  ${BLUE}Grafana:${NC}    http://${VM_IP}/grafana/  (admin / admin)"
 echo -e "  ${BLUE}Prometheus:${NC} http://${VM_IP}:9090"
@@ -125,7 +120,3 @@ echo -e "  ${BLUE}Vault UI:${NC}   http://${VM_IP}:8200  (token: root)"
 echo ""
 echo -e "  Log files: /tmp/vault.log  /tmp/flask.log"
 echo -e "             /tmp/prometheus.log  /tmp/node_exporter.log"
-echo ""
-echo -e "${YELLOW}  Commands used: 2  (git clone + ./setup.sh)${NC}"
-echo -e "${GREEN}  Grade target: 10/10 (≤3 commands = Mastery)${NC}"
-echo ""
