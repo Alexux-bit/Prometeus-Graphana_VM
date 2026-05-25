@@ -13,7 +13,7 @@ VAULT_TOKEN="root"
 WORKDIR="$(pwd)"
 VENV_DIR="${WORKDIR}/venv"
 
-# ── 1. System packages ──────────────────────────────────────
+# ── 1. System packages ─────────────────────────────────────
 log "Step 1/8 — Installing system packages..."
 sudo apt-get update -qq
 sudo apt-get install -y -qq nginx python3-pip python3-venv curl wget unzip apt-transport-https software-properties-common gnupg2
