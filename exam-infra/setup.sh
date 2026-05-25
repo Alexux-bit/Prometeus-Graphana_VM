@@ -11,11 +11,12 @@ PROMETHEUS_VERSION="2.52.0"
 VAULT_ADDR="http://127.0.0.1:8200"
 VAULT_TOKEN="root"
 WORKDIR="$(pwd)"
+VENV_DIR="${WORKDIR}/venv"
 
 # ── 1. System packages ──────────────────────────────────────
 log "Step 1/8 — Installing system packages..."
 sudo apt-get update -qq
-sudo apt-get install -y -qq nginx python3-pip curl wget unzip apt-transport-https software-properties-common gnupg2
+sudo apt-get install -y -qq nginx python3-pip python3-venv curl wget unzip apt-transport-https software-properties-common gnupg2
 ok "System packages installed"
 
 # ── 2. HashiCorp Vault ─────────────────────────────────────
@@ -94,12 +95,24 @@ sudo systemctl restart nginx
 ok "Nginx configured and running on :80"
 
 # ── 7. Flask app ───────────────────────────────────────────
-log "Step 7/8 — Installing Flask and starting the app..."
-pip3 install flask -q --break-system-packages
+log "Step 7/8 — Setting up Python venv and starting Flask app..."
+
+# Create venv if it doesn't exist
+if [ ! -d "${VENV_DIR}" ]; then
+    python3 -m venv "${VENV_DIR}"
+    ok "Virtual environment created at ${VENV_DIR}"
+fi
+
+# Install Flask inside the venv
+"${VENV_DIR}/bin/pip" install flask -q
+ok "Flask installed in venv"
+
 pkill -f "app.py" 2>/dev/null || true
 export VAULT_ADDR="$VAULT_ADDR"
 export VAULT_TOKEN="$VAULT_TOKEN"
-python3 "${WORKDIR}/app/app.py" &>/tmp/flask.log &
+
+# Launch app using the venv Python interpreter
+"${VENV_DIR}/bin/python3" "${WORKDIR}/app/app.py" &>/tmp/flask.log &
 sleep 2
 ok "Flask app running on :5000"
 
