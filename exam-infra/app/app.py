@@ -8,6 +8,7 @@ app = Flask(__name__)
 VAULT_ADDR = "http://127.0.0.1:8200"
 VAULT_TOKEN = "root"
 
+
 def get_secret():
     env = os.environ.copy()
     env["VAULT_ADDR"] = VAULT_ADDR
@@ -16,12 +17,13 @@ def get_secret():
         ["vault", "kv", "get", "-format=json", "secret/myapp/apikey"],
         capture_output=True,
         text=True,
-        env=env
+        env=env,
     )
     if result.returncode != 0:
         return "ERROR: Could not fetch secret from Vault"
     data = json.loads(result.stdout)
     return data["data"]["data"]["value"]
+
 
 @app.route("/")
 def index():
@@ -40,6 +42,7 @@ def index():
     </body>
     </html>
     """
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
