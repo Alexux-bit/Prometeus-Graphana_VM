@@ -4,7 +4,7 @@
 
 ```bash
 # Command 1 — Clone this repo
-git clone https://github.com/YOUR_USERNAME/exam-infra.git && cd exam-infra
+git clone https://github.com/Alexux_bit/exam-infra.git && cd exam-infra
 
 # Command 2 — Run full setup
 chmod +x setup.sh && ./setup.sh
